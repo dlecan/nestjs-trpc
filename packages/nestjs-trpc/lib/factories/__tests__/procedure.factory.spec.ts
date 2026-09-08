@@ -7,7 +7,7 @@ import { ProcedureFactoryMetadata, ProcedureParamDecoratorType } from '../../int
 import { TRPCMiddleware } from '../../interfaces';
 import { Ctx, Input, UseMiddlewares, Options, Query, Mutation, Subscription } from '../../decorators';
 import { ProcedureType } from '../../trpc.enum';
-import { TRPC_LOGGER } from '../../trpc.constants';
+import { TRPC_LOGGER, TRPC_MODULE_OPTIONS } from '../../trpc.constants';
 
 describe('ProcedureFactory', () => {
   let procedureFactory: ProcedureFactory;
@@ -35,6 +35,10 @@ describe('ProcedureFactory', () => {
           useValue: {
             get: jest.fn(),
           },
+        },
+        {
+          provide: TRPC_MODULE_OPTIONS,
+          useValue: {},
         },
       ],
     }).compile();
@@ -473,6 +477,73 @@ describe('ProcedureFactory', () => {
       expect(result.getProtectedItem._def.inputs[0]).toEqual(inputSchema);
       expect(result.getProtectedItem._def.output).toEqual(outputSchema);
       expect(result.getProtectedItem._def.middlewares.length).toBeGreaterThan(0);
+    });
+  });
+
+  describe('syncValidation', () => {
+    const buildFactory = async (options: Record<string, unknown>) => {
+      const module: TestingModule = await Test.createTestingModule({
+        providers: [
+          ProcedureFactory,
+          { provide: TRPC_LOGGER, useValue: { log: jest.fn() } },
+          {
+            provide: MetadataScanner,
+            useValue: { getAllMethodNames: jest.fn() },
+          },
+          { provide: ModuleRef, useValue: { get: jest.fn() } },
+          { provide: TRPC_MODULE_OPTIONS, useValue: options },
+        ],
+      }).compile();
+
+      const factory = module.get<ProcedureFactory>(ProcedureFactory);
+      const ref = module.get<ModuleRef>(ModuleRef);
+      const instance = { constructor: class UserRouter {}, getUserById: jest.fn() };
+      (ref.get as jest.Mock).mockReturnValue(instance);
+
+      const procedures: Array<ProcedureFactoryMetadata> = [
+        {
+          input: z.object({ userId: z.string() }),
+          output: z.object({ id: z.string() }),
+          meta: undefined,
+          type: ProcedureType.Query,
+          middlewares: [],
+          name: 'getUserById',
+          implementation: jest.fn(),
+          params: [],
+        },
+      ];
+
+      const result = factory.serializeProcedures(
+        procedures,
+        instance,
+        'users',
+        initTRPC.context().create().procedure,
+        [],
+      );
+
+      return { result, procedures };
+    };
+
+    it('hands the schemas to tRPC untouched when disabled', async () => {
+      const { result, procedures } = await buildFactory({});
+
+      expect(result.getUserById._def.inputs[0]).toEqual(procedures[0].input);
+      expect(result.getUserById._def.output).toEqual(procedures[0].output);
+    });
+
+    it('wraps the schemas in a parser function when enabled', async () => {
+      const { result } = await buildFactory({ syncValidation: true });
+
+      expect(typeof result.getUserById._def.inputs[0]).toBe('function');
+      expect(typeof result.getUserById._def.output).toBe('function');
+    });
+
+    it('keeps the wrapped parser validating like the schema it replaces', async () => {
+      const { result } = await buildFactory({ syncValidation: true });
+      const parseInput = result.getUserById._def.inputs[0];
+
+      expect(parseInput({ userId: 'sia-1' })).toEqual({ userId: 'sia-1' });
+      expect(() => parseInput({ userId: 42 })).toThrow(z.ZodError);
     });
   });
 });

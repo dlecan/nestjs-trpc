@@ -7,6 +7,7 @@ import {
   PROCEDURE_PARAM_METADATA_KEY,
   PROCEDURE_TYPE_KEY,
   TRPC_LOGGER,
+  TRPC_MODULE_OPTIONS,
 } from '../trpc.constants';
 import {
   ProcedureFactoryMetadata,
@@ -15,7 +16,12 @@ import {
   ProcedureParamDecoratorType,
   TRPCPublicProcedure,
 } from '../interfaces/factory.interface';
-import { ProcedureOptions, TRPCMiddleware } from '../interfaces';
+import {
+  ProcedureOptions,
+  TRPCMiddleware,
+  TRPCModuleOptions,
+} from '../interfaces';
+import { syncFirstParser } from '../utils/sync-first-parser.util';
 import type { Class, Constructor } from 'type-fest';
 import { ProcedureType } from '../trpc.enum';
 import { uniqWith, isEqual } from 'lodash';
@@ -26,6 +32,8 @@ export class ProcedureFactory {
     @Inject(TRPC_LOGGER) private readonly logger: LoggerService,
     @Inject(MetadataScanner) private readonly metadataScanner: MetadataScanner,
     @Inject(ModuleRef) private readonly moduleRef: ModuleRef,
+    @Inject(TRPC_MODULE_OPTIONS)
+    private readonly options: TRPCModuleOptions,
   ) {}
 
   getProcedures(
@@ -160,6 +168,12 @@ export class ProcedureFactory {
       });
   }
 
+  private resolveParser(schema: any): any {
+    return this.options.syncValidation === true
+      ? syncFirstParser(schema)
+      : schema;
+  }
+
   private createSerializedProcedure(
     procedureInstance: TRPCPublicProcedure,
     procedureName: string,
@@ -174,10 +188,10 @@ export class ProcedureFactory {
       ? procedureInstance.meta(meta)
       : procedureInstance;
     const procedureWithInput = input
-      ? procedureWithMeta.input(input)
+      ? procedureWithMeta.input(this.resolveParser(input))
       : procedureWithMeta;
     const procedureWithOutput = output
-      ? procedureWithInput.output(output)
+      ? procedureWithInput.output(this.resolveParser(output))
       : procedureWithInput;
 
     const procedureInvocation = (opts: ProcedureOptions) => {

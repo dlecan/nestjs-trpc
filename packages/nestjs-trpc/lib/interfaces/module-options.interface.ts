@@ -55,6 +55,15 @@ export interface TRPCModuleOptions {
   >;
 
   /**
+   * Validate procedure inputs and outputs through the validator's synchronous parser,
+   * falling back to the asynchronous one for schemas that need it. tRPC always binds
+   * `parseAsync` when a validator exposes it, and zod's async path costs several times
+   * its sync path while never reaching the compiled fast path of `zod/compile`.
+   * @default false
+   */
+  syncValidation?: boolean;
+
+  /**
    * Options for server-sent events (SSE) subscriptions, e.g. keep-alive
    * pings that prevent proxies from closing idle subscription streams.
    * @link https://trpc.io/docs/server/subscriptions
